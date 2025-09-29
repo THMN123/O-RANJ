@@ -1,0 +1,33 @@
+{
+    "name": "O-RANJ",
+    "short_name": "O-RANJ",
+    "description": "Offline survey data collection app for field teams",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#eb8731",
+    "theme_color": "#eb8731",
+    "orientation": "portrait",
+    "scope": "/",
+    "lang": "en",
+    "categories": ["business", "productivity"],
+    "icons": [
+      {
+        "src": "images/photo1.png",
+        "sizes": "192x192",
+        "type": "image/png"
+      },
+      {
+        "src": "images/photo2.png",
+        "sizes": "512x512",
+        "type": "image/png"
+      }
+    ],
+    "screenshots": [
+      {
+        "src": "photo.png",
+        "sizes": "360x640",
+        "type": "image/png",
+        "form_factor": "narrow"
+      }
+    ]
+  }
