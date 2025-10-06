@@ -1,7 +1,26 @@
+// Backend API Configuration
+const API_CONFIG = {
+    BASE_URL: 'http://localhost:5000/api', // Update this to your backend URL
+    ENDPOINTS: {
+        AUTH: {
+            LOGIN: '/auth/login',
+            REGISTER: '/auth/register',
+            ME: '/auth/me',
+            PROFILE: '/auth/profile',
+            CHANGE_PASSWORD: '/auth/change-password'
+        },
+        SURVEY_TEMPLATES: '/survey-templates',
+        SURVEY_RESPONSES: '/survey-responses'
+    }
+};
+
 // Application state
 let currentSection = 1;
 const totalSections = 4;
 let currentAppSection = 'survey';
+let currentUser = null;
+let authToken = localStorage.getItem('authToken');
+let currentSurveyTemplate = null;
 
 // Survey data templates
 const surveyData = {
@@ -19,18 +38,215 @@ const surveyData = {
     ]
 };
 
-// Enhanced Data Storage and Sync System
+// Enhanced Data Storage and Sync System with Backend Integration
 const DataManager = {
     STORAGE_KEYS: {
         SURVEYS: 'survey_responses',
         PENDING_SYNC: 'pending_sync_queue',
+        USER_DATA: 'user_data',
+        AUTH_TOKEN: 'authToken',
         TEAM_MEMBERS: 'team_members',
         SYNC_TIMESTAMP: 'last_sync_timestamp',
         DEVICE_INFO: 'device_info'
     },
 
-    // Save survey response with sync tracking
-    saveSurvey(response) {
+    // API request helper
+    async apiRequest(endpoint, options = {}) {
+        const url = `${API_CONFIG.BASE_URL}${endpoint}`;
+        const config = {
+            headers: {
+                'Content-Type': 'application/json',
+                ...(authToken && { 'Authorization': `Bearer ${authToken}` }),
+                ...options.headers
+            },
+            ...options
+        };
+
+        try {
+            const response = await fetch(url, config);
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.message || 'API request failed');
+            }
+
+            return data;
+        } catch (error) {
+            console.error('API Request failed:', error);
+            
+            // If offline, store request for later sync
+            if (!navigator.onLine && options.method && options.method !== 'GET') {
+                this.addToOfflineQueue(endpoint, options);
+            }
+            
+            throw error;
+        }
+    },
+
+    // Authentication methods
+    async login(email, password) {
+        const result = await this.apiRequest(API_CONFIG.ENDPOINTS.AUTH.LOGIN, {
+            method: 'POST',
+            body: JSON.stringify({ email, password })
+        });
+
+        authToken = result.data.token;
+        localStorage.setItem(this.STORAGE_KEYS.AUTH_TOKEN, authToken);
+        currentUser = result.data.user;
+        
+        return result;
+    },
+
+    async register(userData) {
+        const result = await this.apiRequest(API_CONFIG.ENDPOINTS.AUTH.REGISTER, {
+            method: 'POST',
+            body: JSON.stringify(userData)
+        });
+
+        authToken = result.data.token;
+        localStorage.setItem(this.STORAGE_KEYS.AUTH_TOKEN, authToken);
+        currentUser = result.data.user;
+        
+        return result;
+    },
+
+    async getCurrentUser() {
+        if (!authToken) return null;
+        
+        try {
+            const result = await this.apiRequest(API_CONFIG.ENDPOINTS.AUTH.ME);
+            currentUser = result.data.user;
+            return currentUser;
+        } catch (error) {
+            console.error('Failed to get current user:', error);
+            this.logout();
+            return null;
+        }
+    },
+
+    logout() {
+        authToken = null;
+        currentUser = null;
+        localStorage.removeItem(this.STORAGE_KEYS.AUTH_TOKEN);
+        localStorage.removeItem(this.STORAGE_KEYS.USER_DATA);
+        showAuthModal();
+    },
+
+    // Survey template methods
+    async getSurveyTemplates(params = {}) {
+        const queryString = new URLSearchParams(params).toString();
+        return await this.apiRequest(`${API_CONFIG.ENDPOINTS.SURVEY_TEMPLATES}?${queryString}`);
+    },
+
+    async getSurveyTemplate(id) {
+        return await this.apiRequest(`${API_CONFIG.ENDPOINTS.SURVEY_TEMPLATES}/${id}`);
+    },
+
+    async createSurveyTemplate(templateData) {
+        return await this.apiRequest(API_CONFIG.ENDPOINTS.SURVEY_TEMPLATES, {
+            method: 'POST',
+            body: JSON.stringify(templateData)
+        });
+    },
+
+    async updateSurveyTemplate(id, templateData) {
+        return await this.apiRequest(`${API_CONFIG.ENDPOINTS.SURVEY_TEMPLATES}/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(templateData)
+        });
+    },
+
+    async deleteSurveyTemplate(id) {
+        return await this.apiRequest(`${API_CONFIG.ENDPOINTS.SURVEY_TEMPLATES}/${id}`, {
+            method: 'DELETE'
+        });
+    },
+
+    async duplicateSurveyTemplate(id) {
+        return await this.apiRequest(`${API_CONFIG.ENDPOINTS.SURVEY_TEMPLATES}/${id}/duplicate`, {
+            method: 'POST'
+        });
+    },
+
+    // Survey response methods
+    async submitSurvey(response) {
+        const surveyData = {
+            surveyTemplate: currentSurveyTemplate || response.surveyTemplate,
+            responses: this.formatSurveyResponse(response),
+            deviceInfo: {
+                deviceId: this.getDeviceId(),
+                platform: navigator.platform,
+                userAgent: navigator.userAgent,
+                appVersion: '1.0.0'
+            },
+            analytics: {
+                startTime: new Date(Date.now() - 300000), // 5 minutes ago
+                endTime: new Date(),
+                completionTime: 300, // 5 minutes in seconds
+                sectionsCompleted: ['1', '2', '3', '4']
+            }
+        };
+
+        // Try to submit to backend first
+        if (navigator.onLine) {
+            try {
+                const result = await this.apiRequest(API_CONFIG.ENDPOINTS.SURVEY_RESPONSES, {
+                    method: 'POST',
+                    body: JSON.stringify(surveyData)
+                });
+                
+                // Also save locally for redundancy
+                this.saveSurveyLocal(response);
+                return result;
+            } catch (error) {
+                console.error('Failed to submit to backend, saving locally:', error);
+                // Fall back to local storage
+                return this.saveSurveyLocal(response);
+            }
+        } else {
+            // Offline - save locally and queue for sync
+            return this.saveSurveyLocal(response);
+        }
+    },
+
+    async syncOfflineResponses() {
+        const pendingResponses = this.getPendingSyncQueue();
+        
+        if (pendingResponses.length === 0 || !navigator.onLine) {
+            return { success: true, message: 'No pending responses to sync' };
+        }
+
+        try {
+            const result = await this.apiRequest(`${API_CONFIG.ENDPOINTS.SURVEY_RESPONSES}/sync`, {
+                method: 'POST',
+                body: JSON.stringify({ responses: pendingResponses })
+            });
+
+            // Clear sync queue on success
+            if (result.success) {
+                this.clearSyncQueue();
+                TeamApp.showNotification(`Synced ${result.data.syncResults.successful.length} responses`, 'success');
+            }
+
+            return result;
+        } catch (error) {
+            console.error('Sync failed:', error);
+            throw error;
+        }
+    },
+
+    async getSurveyResponses(params = {}) {
+        const queryString = new URLSearchParams(params).toString();
+        return await this.apiRequest(`${API_CONFIG.ENDPOINTS.SURVEY_RESPONSES}?${queryString}`);
+    },
+
+    async getSurveyAnalytics(params = {}) {
+        const queryString = new URLSearchParams(params).toString();
+        return await this.apiRequest(`${API_CONFIG.ENDPOINTS.SURVEY_RESPONSES}/analytics?${queryString}`);
+    },
+
+    // Local storage methods (fallback for offline)
+    saveSurveyLocal(response) {
         let surveys = this.getAllSurveys();
         const surveyId = this.generateId();
         const timestamp = new Date().toISOString();
@@ -58,10 +274,9 @@ const DataManager = {
             this.addToSyncQueue(completeSurvey);
         }
         
-        return completeSurvey;
+        return { success: true, data: { response: completeSurvey } };
     },
 
-    // Get all surveys
     getAllSurveys() {
         return JSON.parse(localStorage.getItem(this.STORAGE_KEYS.SURVEYS) || '[]');
     },
@@ -73,48 +288,21 @@ const DataManager = {
         localStorage.setItem(this.STORAGE_KEYS.PENDING_SYNC, JSON.stringify(queue));
     },
 
+    getPendingSyncQueue() {
+        return JSON.parse(localStorage.getItem(this.STORAGE_KEYS.PENDING_SYNC) || '[]');
+    },
+
     getPendingSyncCount() {
-        const queue = JSON.parse(localStorage.getItem(this.STORAGE_KEYS.PENDING_SYNC) || '[]');
-        return queue.length;
+        return this.getPendingSyncQueue().length;
     },
 
     clearSyncQueue() {
         localStorage.removeItem(this.STORAGE_KEYS.PENDING_SYNC);
     },
 
-    // Team Sync Simulation
-    async syncWithTeam() {
-        if (!navigator.onLine) {
-            throw new Error('No internet connection');
-        }
-
-        const pendingSurveys = JSON.parse(localStorage.getItem(this.STORAGE_KEYS.PENDING_SYNC) || '[]');
-        const allSurveys = this.getAllSurveys();
-        
-        // Simulate API call delay
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        
-        // In a real app, this would send data to a server
-        // For now, we'll simulate successful sync
-        const syncResults = {
-            success: true,
-            surveysSynced: pendingSurveys.length,
-            timestamp: new Date().toISOString(),
-            teamMembers: this.getTeamMembers()
-        };
-
-        // Mark surveys as synced
-        allSurveys.forEach(survey => {
-            if (survey.syncStatus === 'pending') {
-                survey.syncStatus = 'synced';
-            }
-        });
-        
-        localStorage.setItem(this.STORAGE_KEYS.SURVEYS, JSON.stringify(allSurveys));
-        this.clearSyncQueue();
-        this.setLastSyncTimestamp();
-        
-        return syncResults;
+    addToOfflineQueue(endpoint, options) {
+        // Implementation for offline request queue
+        console.log('Added to offline queue:', endpoint, options);
     },
 
     // Team Management
@@ -149,23 +337,6 @@ const DataManager = {
         }
     },
 
-    // Device Management
-    getDeviceId() {
-        let deviceId = localStorage.getItem('deviceId');
-        if (!deviceId) {
-            deviceId = this.generateId();
-            localStorage.setItem('deviceId', deviceId);
-            
-            // Register this device as a team member
-            this.addTeamMember({
-                deviceId: deviceId,
-                name: 'Device ' + deviceId.substring(0, 8),
-                role: 'field_researcher'
-            });
-        }
-        return deviceId;
-    },
-
     setLastSyncTimestamp() {
         localStorage.setItem(this.STORAGE_KEYS.SYNC_TIMESTAMP, new Date().toISOString());
     },
@@ -174,7 +345,40 @@ const DataManager = {
         return localStorage.getItem(this.STORAGE_KEYS.SYNC_TIMESTAMP);
     },
 
-    // Export functions
+    // Helper methods
+    formatSurveyResponse(response) {
+        // Format the response for backend API
+        return {
+            openEndedProblem: response.openEndedProblem,
+            problemRatings: response.problemRatings,
+            topProblems: response.topProblems,
+            currentSolution: response.currentSolution,
+            satisfactionRating: response.satisfactionRating,
+            frustrationDetails: response.frustrationDetails,
+            customSolution: response.customSolution,
+            solutionFeatures: response.solutionFeatures,
+            likelihoodRating: response.likelihoodRating,
+            willingnessToPay: response.willingnessToPay,
+            bossBattle: response.bossBattle,
+            interestedInTrying: response.interestedInTrying,
+            contactInfo: response.contactInfo
+        };
+    },
+
+    getDeviceId() {
+        let deviceId = localStorage.getItem('deviceId');
+        if (!deviceId) {
+            deviceId = this.generateId();
+            localStorage.setItem('deviceId', deviceId);
+        }
+        return deviceId;
+    },
+
+    generateId() {
+        return Date.now().toString(36) + Math.random().toString(36).substr(2);
+    },
+
+    // File management methods
     exportJSON() {
         const data = this.getAllSurveys();
         if (data.length === 0) {
@@ -269,18 +473,20 @@ const DataManager = {
         document.getElementById('storage-used').textContent = this.formatBytes(dataSize);
 
         // Update sync status
-        const pendingSync = this.getPendingSyncCount();
+        const pendingSync = this.getPendingSyncQueue().length;
         const syncStatusElement = document.getElementById('sync-status');
+        const syncStatusText = document.getElementById('sync-status-text');
+        
         if (pendingSync > 0) {
             syncStatusElement.textContent = `📱 ${pendingSync} pending sync`;
             syncStatusElement.style.backgroundColor = '#ffcc00';
             syncStatusElement.style.color = '#000';
+            syncStatusText.textContent = `${pendingSync} responses pending sync`;
         } else {
-            const lastSync = this.getLastSyncTimestamp();
-            const syncTime = lastSync ? new Date(lastSync).toLocaleTimeString() : 'Never';
-            syncStatusElement.textContent = `✅ Synced ${syncTime}`;
+            syncStatusElement.textContent = `✅ All data synced`;
             syncStatusElement.style.backgroundColor = '#4bb543';
             syncStatusElement.style.color = 'white';
+            syncStatusText.textContent = 'All data synchronized with server';
         }
 
         this.updateRecentSurveysList(surveys);
@@ -316,10 +522,290 @@ const DataManager = {
                 </div>
             </div>
         `).join('');
+    }
+};
+
+// Authentication Management
+const AuthManager = {
+    async init() {
+        // Check if user is already authenticated
+        if (authToken) {
+            try {
+                const user = await DataManager.getCurrentUser();
+                if (user) {
+                    this.showApp();
+                    return;
+                }
+            } catch (error) {
+                console.error('Authentication check failed:', error);
+                this.showAuthModal();
+            }
+        } else {
+            this.showAuthModal();
+        }
     },
 
-    generateId() {
-        return Date.now().toString(36) + Math.random().toString(36).substr(2);
+    showAuthModal() {
+        document.getElementById('auth-modal').style.display = 'flex';
+        document.getElementById('app-container').style.display = 'none';
+    },
+
+    hideAuthModal() {
+        document.getElementById('auth-modal').style.display = 'none';
+    },
+
+    showApp() {
+        document.getElementById('auth-modal').style.display = 'none';
+        document.getElementById('app-container').style.display = 'block';
+        this.updateUserInterface();
+    },
+
+    updateUserInterface() {
+        if (currentUser) {
+            document.getElementById('user-name').textContent = currentUser.name;
+        }
+    },
+
+    async handleLogin(event) {
+        event.preventDefault();
+        
+        const email = document.getElementById('login-email').value;
+        const password = document.getElementById('login-password').value;
+        
+        this.showLoading(true);
+        
+        try {
+            await DataManager.login(email, password);
+            this.hideAuthModal();
+            this.showApp();
+            TeamApp.showNotification('Login successful!', 'success');
+            
+            // Load initial data
+            loadSurveyTemplates();
+            loadDashboard();
+        } catch (error) {
+            TeamApp.showNotification(error.message || 'Login failed', 'error');
+        } finally {
+            this.showLoading(false);
+        }
+    },
+
+    async handleRegister(event) {
+        event.preventDefault();
+        
+        const formData = {
+            name: document.getElementById('register-name').value,
+            email: document.getElementById('register-email').value,
+            password: document.getElementById('register-password').value,
+            teamName: document.getElementById('register-team').value
+        };
+        
+        this.showLoading(true);
+        
+        try {
+            await DataManager.register(formData);
+            this.hideAuthModal();
+            this.showApp();
+            TeamApp.showNotification('Registration successful!', 'success');
+            
+            // Load initial data
+            loadSurveyTemplates();
+            loadDashboard();
+        } catch (error) {
+            TeamApp.showNotification(error.message || 'Registration failed', 'error');
+        } finally {
+            this.showLoading(false);
+        }
+    },
+
+    showLoading(show) {
+        const loadingElement = document.getElementById('auth-loading');
+        const loginForm = document.getElementById('login-form');
+        const registerForm = document.getElementById('register-form');
+        
+        if (show) {
+            loadingElement.style.display = 'block';
+            loginForm.style.display = 'none';
+            registerForm.style.display = 'none';
+        } else {
+            loadingElement.style.display = 'none';
+            const activeTab = document.querySelector('.auth-tab.active').dataset.tab;
+            if (activeTab === 'login') {
+                loginForm.style.display = 'block';
+            } else {
+                registerForm.style.display = 'block';
+            }
+        }
+    }
+};
+
+// Survey Template Management
+const TemplateManager = {
+    async loadTemplates() {
+        try {
+            const result = await DataManager.getSurveyTemplates();
+            this.displayTemplates(result.data.templates);
+            this.populateTemplateDropdown(result.data.templates);
+        } catch (error) {
+            console.error('Failed to load templates:', error);
+            TeamApp.showNotification('Failed to load survey templates', 'error');
+        }
+    },
+
+    displayTemplates(templates) {
+        const container = document.getElementById('templates-grid');
+        
+        if (templates.length === 0) {
+            container.innerHTML = `
+                <div class="no-templates">
+                    <p>No survey templates found.</p>
+                    <button class="export-btn" id="create-first-template">Create Your First Template</button>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = templates.map(template => `
+            <div class="template-card">
+                <div class="template-card-header">
+                    <h3 class="template-name">${template.name}</h3>
+                    <span class="template-status ${template.status}">${template.status}</span>
+                </div>
+                <p class="template-description">${template.description || 'No description provided'}</p>
+                <div class="template-meta">
+                    <span>Category: ${template.category}</span>
+                    <span>Questions: ${template.questions.length}</span>
+                </div>
+                <div class="template-actions">
+                    <button class="template-action-btn edit" onclick="TemplateManager.editTemplate('${template._id}')">
+                        Edit
+                    </button>
+                    <button class="template-action-btn duplicate" onclick="TemplateManager.duplicateTemplate('${template._id}')">
+                        Duplicate
+                    </button>
+                    <button class="template-action-btn delete" onclick="TemplateManager.deleteTemplate('${template._id}')">
+                        Delete
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    },
+
+    populateTemplateDropdown(templates) {
+        const dropdown = document.getElementById('survey-template');
+        const filterDropdown = document.getElementById('template-filter');
+        
+        const activeTemplates = templates.filter(t => t.status === 'active');
+        
+        if (activeTemplates.length === 0) {
+            dropdown.innerHTML = '<option value="">No active templates available</option>';
+            filterDropdown.innerHTML = '<option value="all">All Templates</option>';
+            return;
+        }
+        
+        dropdown.innerHTML = activeTemplates.map(template => 
+            `<option value="${template._id}">${template.name}</option>`
+        ).join('');
+        
+        filterDropdown.innerHTML = '<option value="all">All Templates</option>' + 
+            activeTemplates.map(template => 
+                `<option value="${template._id}">${template.name}</option>`
+            ).join('');
+        
+        // Set the first template as current
+        if (activeTemplates.length > 0) {
+            currentSurveyTemplate = activeTemplates[0]._id;
+            dropdown.value = currentSurveyTemplate;
+        }
+    },
+
+    async createTemplate(templateData) {
+        try {
+            const result = await DataManager.createSurveyTemplate(templateData);
+            TeamApp.showNotification('Template created successfully', 'success');
+            this.loadTemplates();
+            this.closeTemplateModal();
+            return result;
+        } catch (error) {
+            TeamApp.showNotification(error.message || 'Failed to create template', 'error');
+            throw error;
+        }
+    },
+
+    async editTemplate(templateId) {
+        try {
+            const result = await DataManager.getSurveyTemplate(templateId);
+            this.openTemplateModal(result.data.template);
+        } catch (error) {
+            TeamApp.showNotification('Failed to load template', 'error');
+        }
+    },
+
+    async duplicateTemplate(templateId) {
+        try {
+            await DataManager.duplicateSurveyTemplate(templateId);
+            TeamApp.showNotification('Template duplicated successfully', 'success');
+            this.loadTemplates();
+        } catch (error) {
+            TeamApp.showNotification(error.message || 'Failed to duplicate template', 'error');
+        }
+    },
+
+    async deleteTemplate(templateId) {
+        if (confirm('Are you sure you want to delete this template? This action cannot be undone.')) {
+            try {
+                await DataManager.deleteSurveyTemplate(templateId);
+                TeamApp.showNotification('Template deleted successfully', 'success');
+                this.loadTemplates();
+            } catch (error) {
+                TeamApp.showNotification(error.message || 'Failed to delete template', 'error');
+            }
+        }
+    },
+
+    openTemplateModal(template = null) {
+        const modal = document.getElementById('template-modal');
+        const title = document.getElementById('template-modal-title');
+        const form = document.getElementById('template-form');
+        
+        if (template) {
+            title.textContent = 'Edit Template';
+            this.populateTemplateForm(template);
+        } else {
+            title.textContent = 'Create New Template';
+            form.reset();
+            document.getElementById('template-questions').innerHTML = '';
+        }
+        
+        modal.style.display = 'flex';
+    },
+
+    closeTemplateModal() {
+        document.getElementById('template-modal').style.display = 'none';
+    },
+
+    populateTemplateForm(template) {
+        // Implementation for populating the template form
+        // This would set all the form fields with the template data
+    },
+
+    handleTemplateSubmit(event) {
+        event.preventDefault();
+        
+        const formData = {
+            name: document.getElementById('template-name').value,
+            description: document.getElementById('template-description').value,
+            category: document.getElementById('template-category').value,
+            status: document.getElementById('template-status').value,
+            questions: this.getQuestionsFromForm()
+        };
+        
+        this.createTemplate(formData);
+    },
+
+    getQuestionsFromForm() {
+        // Implementation for extracting questions from the form
+        return [];
     }
 };
 
@@ -637,8 +1123,8 @@ const TeamApp = {
         this.showNotification('Syncing data with team...', 'info');
         
         try {
-            const results = await DataManager.syncWithTeam();
-            this.showNotification(`Successfully synced ${results.surveysSynced} surveys`, 'success');
+            const results = await DataManager.syncOfflineResponses();
+            this.showNotification(`Successfully synced ${results.data?.syncResults?.successful?.length || 0} surveys`, 'success');
             DataManager.updateFileSection();
             loadDashboard();
         } catch (error) {
@@ -657,7 +1143,7 @@ const TeamApp = {
     
     async autoSync() {
         try {
-            await DataManager.syncWithTeam();
+            await DataManager.syncOfflineResponses();
             console.log('Auto-sync completed successfully');
         } catch (error) {
             console.log('Auto-sync failed:', error.message);
@@ -896,7 +1382,8 @@ const SurveyManager = {
             // Section 4
             bossBattle: document.getElementById('boss-battle').value.trim(),
             interestedInTrying: document.querySelector('#section-4 .options-list .option-item.selected')?.dataset.value,
-            contactInfo: this.getContactInfo()
+            contactInfo: this.getContactInfo(),
+            surveyTemplate: currentSurveyTemplate
         };
     },
 
@@ -1022,20 +1509,19 @@ const SurveyManager = {
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
+    // Initialize authentication
+    AuthManager.init();
+    
     // Initialize survey components
     SurveyManager.initProblemRatings();
     setupEventListeners();
-    TeamApp.init();
-    loadDashboard();
-    DataManager.updateFileSection();
     
-    // Check if app is installed
-    if (window.matchMedia('(display-mode: standalone').matches) {
-        console.log('App is running in standalone mode');
-        document.body.classList.add('standalone');
+    // Initialize TeamApp if user is authenticated
+    if (authToken) {
+        TeamApp.init();
     }
     
-    // Service Worker Registration
+    // Initialize service worker if available
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('sw.js')
             .then(function(registration) {
@@ -1043,19 +1529,34 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .catch(function(error) {
                 console.log('ServiceWorker registration failed: ', error);
-                // Show user-friendly message
-                TeamApp.showNotification('Offline features not available', 'warning');
             });
-    }
-
-    // Initialize device ID
-    if (!localStorage.getItem('deviceId')) {
-        localStorage.setItem('deviceId', TeamApp.generateId());
     }
 });
 
 // Setup event listeners
 function setupEventListeners() {
+    // Authentication events
+    document.getElementById('loginForm').addEventListener('submit', (e) => AuthManager.handleLogin(e));
+    document.getElementById('registerForm').addEventListener('submit', (e) => AuthManager.handleRegister(e));
+    
+    // Auth tabs
+    document.querySelectorAll('.auth-tab').forEach(tab => {
+        tab.addEventListener('click', function() {
+            const tabId = this.dataset.tab;
+            
+            // Update active tab
+            document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+            this.classList.add('active');
+            
+            // Show corresponding form
+            document.querySelectorAll('.auth-form').forEach(form => form.classList.remove('active'));
+            document.getElementById(`${tabId}-form`).classList.add('active');
+        });
+    });
+    
+    // Logout
+    document.getElementById('logout-btn').addEventListener('click', () => DataManager.logout());
+    
     // Navigation
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.addEventListener('click', function() {
@@ -1076,10 +1577,22 @@ function setupEventListeners() {
     document.getElementById('submit').addEventListener('click', submitSurvey);
     document.getElementById('view-results').addEventListener('click', () => switchAppSection('dashboard'));
 
+    // Template selection
+    document.getElementById('survey-template').addEventListener('change', function() {
+        currentSurveyTemplate = this.value;
+    });
+
     // File management
     document.getElementById('export-json').addEventListener('click', () => DataManager.exportJSON());
     document.getElementById('export-csv').addEventListener('click', () => DataManager.exportCSV());
+    document.getElementById('sync-now-btn').addEventListener('click', () => DataManager.syncOfflineResponses());
     document.getElementById('clear-data').addEventListener('click', () => DataManager.clearData());
+
+    // Template management
+    document.getElementById('create-template-btn').addEventListener('click', () => TemplateManager.openTemplateModal());
+    document.getElementById('close-template-modal').addEventListener('click', () => TemplateManager.closeTemplateModal());
+    document.getElementById('cancel-template').addEventListener('click', () => TemplateManager.closeTemplateModal());
+    document.getElementById('template-form').addEventListener('submit', (e) => TemplateManager.handleTemplateSubmit(e));
 
     // Contact info toggle
     document.querySelectorAll('#section-4 .option-item').forEach(item => {
@@ -1169,79 +1682,65 @@ function setupEventListeners() {
     // Online/Offline Detection
     window.addEventListener('online', function() {
         document.getElementById('offline-indicator').style.display = 'none';
-        DataManager.updateTeamMemberPresence(DataManager.getDeviceId(), true);
         
         // Auto-sync when coming online
-        if (DataManager.getPendingSyncCount() > 0) {
-            TeamApp.autoSync();
+        if (DataManager.getPendingSyncQueue().length > 0) {
+            DataManager.syncOfflineResponses();
         }
+        
+        // Refresh data
+        loadSurveyTemplates();
+        loadDashboard();
     });
 
     window.addEventListener('offline', function() {
         document.getElementById('offline-indicator').style.display = 'block';
-        DataManager.updateTeamMemberPresence(DataManager.getDeviceId(), false);
-    });
-    
-    // Prevent double-tap zoom on buttons
-    document.querySelectorAll('button').forEach(btn => {
-        btn.addEventListener('touchstart', function(e) {
-            if (e.touches.length > 1) {
-                e.preventDefault();
-            }
-        }, { passive: false });
-    });
-    
-    // Better touch feedback
-    document.querySelectorAll('.rating-option, .option-item').forEach(item => {
-        item.addEventListener('touchstart', function() {
-            this.style.backgroundColor = '#e9ecef';
-        });
-        
-        item.addEventListener('touchend', function() {
-            this.style.backgroundColor = '';
-        });
-    });
-    
-    // Handle orientation changes
-    window.addEventListener('orientationchange', function() {
-        // Redraw charts on orientation change
-        setTimeout(loadDashboard, 300);
     });
 }
 
+// Load survey templates
+function loadSurveyTemplates() {
+    if (currentUser) {
+        TemplateManager.loadTemplates();
+    }
+}
+
 function submitSurvey() {
+    if (!currentSurveyTemplate) {
+        TeamApp.showNotification('Please select a survey template first', 'warning');
+        return;
+    }
+    
     const surveyData = SurveyManager.collectSurveyData();
     
     // Add metadata
-    surveyData.collectedBy = TeamApp.teamMembers[0]?.name || 'Unknown Collector';
+    surveyData.collectedBy = currentUser?.name || 'Unknown Collector';
     surveyData.deviceId = DataManager.getDeviceId();
     
     // Save to storage
-    const savedSurvey = DataManager.saveSurvey(surveyData);
-    if (savedSurvey) {
-        const syncStatus = savedSurvey.syncStatus === 'synced' ? 'and synced' : '(pending sync)';
-        TeamApp.showNotification(`Survey submitted successfully ${syncStatus}!`, 'success');
-        
-        // Show thank you message
-        document.querySelectorAll('.survey-section').forEach(section => {
-            section.style.display = 'none';
+    DataManager.submitSurvey(surveyData)
+        .then(result => {
+            const syncStatus = result.data.response?.syncStatus === 'synced' ? 'and synced' : '(pending sync)';
+            TeamApp.showNotification(`Survey submitted successfully ${syncStatus}!`, 'success');
+            
+            // Show thank you message
+            document.querySelectorAll('.survey-section').forEach(section => {
+                section.style.display = 'none';
+            });
+            document.getElementById('thank-you').style.display = 'block';
+            document.getElementById('progress-bar').style.width = '100%';
+            
+            // Update file section
+            DataManager.updateFileSection();
+            
+            // Reset form for next survey
+            setTimeout(() => {
+                SurveyManager.resetSurveyForm();
+            }, 3000);
+        })
+        .catch(error => {
+            TeamApp.showNotification(error.message || 'Failed to submit survey', 'error');
         });
-        document.getElementById('thank-you').style.display = 'block';
-        document.getElementById('progress-bar').style.width = '100%';
-        
-        // Update file section
-        DataManager.updateFileSection();
-        
-        // Reset form for next survey
-        setTimeout(() => {
-            SurveyManager.resetSurveyForm();
-        }, 3000);
-        
-        // Vibrate on success
-        if (navigator.vibrate) {
-            navigator.vibrate(200);
-        }
-    }
 }
 
 function switchAppSection(section) {
@@ -1261,6 +1760,8 @@ function switchAppSection(section) {
     
     if (section === 'dashboard') {
         loadDashboard();
+    } else if (section === 'templates') {
+        loadSurveyTemplates();
     } else if (section === 'files') {
         DataManager.updateFileSection();
     }
@@ -1292,6 +1793,7 @@ function navigateToSection(sectionNumber) {
     currentSection = sectionNumber;
 }
 
+// Dashboard functions
 function loadDashboard() {
     const responses = DataManager.getAllSurveys();
     
@@ -1302,6 +1804,12 @@ function loadDashboard() {
     // If we have responses, process them
     if (responses.length > 0) {
         const processedData = processSurveyData(responses);
+        
+        // Update statistics with proper fallbacks
+        document.getElementById('avg-problem-severity').textContent = processedData.avgProblemSeverity;
+        document.getElementById('top-problem').textContent = processedData.topProblem;
+        document.getElementById('solution-interest').textContent = processedData.solutionInterest;
+        
         updateDashboardCharts(processedData);
         updateDashboardInsights(processedData);
         populateResponseTable(responses);
@@ -1359,14 +1867,14 @@ function processSurveyData(responses) {
     
     // Process each response
     responses.forEach(response => {
-        // Process problem distribution and severity
+        // Process problem ratings and distribution
         if (response.problemRatings) {
             Object.entries(response.problemRatings).forEach(([category, rating]) => {
-                // Problem distribution - count occurrences
-                processedData.problemDistribution[category] = (processedData.problemDistribution[category] || 0) + 1;
-                
-                // Accumulate for average severity
+                // Problem distribution - count occurrences where rating > 0
                 if (rating > 0) {
+                    processedData.problemDistribution[category] = (processedData.problemDistribution[category] || 0) + 1;
+                    
+                    // Accumulate for average severity
                     totalSeverity += parseInt(rating);
                     severityCount++;
                     
@@ -1380,13 +1888,19 @@ function processSurveyData(responses) {
             });
         }
         
-        // Process top problems
+        // Process top problems from the collected data
         if (response.topProblems && response.topProblems.length > 0) {
             response.topProblems.forEach((problem, index) => {
-                if (index === 0) {
-                    // Count #1 top problems
-                    processedData.topProblems[problem.category] = (processedData.topProblems[problem.category] || 0) + 1;
+                const problemCategory = problem.category;
+                
+                // Count occurrences in top problems
+                processedData.topProblems[problemCategory] = (processedData.topProblems[problemCategory] || 0) + 1;
+                
+                // Also ensure it's in problem distribution
+                if (!processedData.problemDistribution[problemCategory]) {
+                    processedData.problemDistribution[problemCategory] = 0;
                 }
+                processedData.problemDistribution[problemCategory] += 1;
             });
         }
         
@@ -1407,9 +1921,10 @@ function processSurveyData(responses) {
         }
         
         // Process willingness to pay
-        if (response.willingnessToPay) {
-            processedData.willingnessToPay[response.willingnessToPay] = 
-                (processedData.willingnessToPay[response.willingnessToPay] || 0) + 1;
+        if (response.willingnessToPay && response.willingnessToPay.trim() !== '') {
+            const price = response.willingnessToPay.trim();
+            processedData.willingnessToPay[price] = 
+                (processedData.willingnessToPay[price] || 0) + 1;
         }
         
         // Process early adopter
@@ -1425,7 +1940,7 @@ function processSurveyData(responses) {
     // Calculate averages and determine top problem
     processedData.avgProblemSeverity = severityCount > 0 ? (totalSeverity / severityCount).toFixed(1) : '0.0';
     
-    // Find top problem
+    // Find top problem from topProblems data
     let maxCount = 0;
     let topProblem = '';
     Object.entries(processedData.topProblems).forEach(([problem, count]) => {
@@ -1434,7 +1949,18 @@ function processSurveyData(responses) {
             topProblem = problem;
         }
     });
-    processedData.topProblem = topProblem || '-';
+    
+    // If no top problems found, try to find from problem distribution
+    if (!topProblem) {
+        Object.entries(processedData.problemDistribution).forEach(([problem, count]) => {
+            if (count > maxCount) {
+                maxCount = count;
+                topProblem = problem;
+            }
+        });
+    }
+    
+    processedData.topProblem = topProblem || 'No data';
     
     // Calculate solution interest
     const totalInterest = processedData.earlyAdopter.yes + processedData.earlyAdopter.no;
@@ -1444,7 +1970,11 @@ function processSurveyData(responses) {
     // Calculate average severity by category
     Object.keys(processedData.severityByCategory).forEach(category => {
         const data = processedData.severityByCategory[category];
-        processedData.severityByCategory[category] = (data.sum / data.count).toFixed(1);
+        if (data.count > 0) {
+            processedData.severityByCategory[category] = (data.sum / data.count).toFixed(1);
+        } else {
+            processedData.severityByCategory[category] = '0.0';
+        }
     });
     
     return processedData;
@@ -1489,12 +2019,17 @@ function createProblemDistributionChart(data) {
     const labels = Object.keys(data);
     const chartData = Object.values(data);
     
-    if (chartData.length === 0) {
+    if (chartData.length === 0 || chartData.reduce((a, b) => a + b, 0) === 0) {
         showEmptyChart(ctx, 'No problem distribution data available');
         return;
     }
     
-    new Chart(ctx, {
+    // Destroy existing chart if it exists
+    if (window.problemDistributionChart) {
+        window.problemDistributionChart.destroy();
+    }
+    
+    window.problemDistributionChart = new Chart(ctx, {
         type: 'doughnut',
         data: {
             labels: labels,
@@ -1835,4 +2370,10 @@ function populateResponseTable(responses) {
             </tr>
         `;
     }).join('');
+}
+
+// Helper function to show auth modal
+function showAuthModal() {
+    document.getElementById('auth-modal').style.display = 'flex';
+    document.getElementById('app-container').style.display = 'none';
 }

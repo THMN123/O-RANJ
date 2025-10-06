@@ -1,9 +1,13 @@
 // sw.js - Service Worker for O-RANJ App
-const CACHE_NAME = 'O-RANJ-app-v1.3';
+const CACHE_NAME = 'O-RANJ-app-v1.4';
 const urlsToCache = [
   '/',
   '/index.html',
+  '/style.css',
+  '/script.js',
   '/manifest.json',
+  '/images/photo1.png',
+  '/images/photo2.png',
   'https://cdn.jsdelivr.net/npm/chart.js'
 ];
 
@@ -39,21 +43,33 @@ self.addEventListener('activate', function(event) {
 
 // Fetch event - serve from cache first, then network
 self.addEventListener('fetch', function(event) {
-  if (event.request.url.includes('/api/')) {
-    // API requests - network first, then cache
-    event.respondWith(
-      fetch(event.request).catch(function() {
-        return caches.match(event.request);
-      })
-    );
-  } else {
-    // Static assets - cache first, then network
-    event.respondWith(
-      caches.match(event.request).then(function(response) {
-        return response || fetch(event.request);
-      })
-    );
+  // Skip non-GET requests and chrome-extension requests
+  if (event.request.method !== 'GET' || event.request.url.startsWith('chrome-extension')) {
+    return;
   }
+
+  event.respondWith(
+    caches.match(event.request)
+      .then(function(response) {
+        // Return cached version or fetch from network
+        return response || fetch(event.request)
+          .then(function(fetchResponse) {
+            // Cache the new response
+            return caches.open(CACHE_NAME)
+              .then(function(cache) {
+                cache.put(event.request, fetchResponse.clone());
+                return fetchResponse;
+              });
+          })
+          .catch(function(error) {
+            console.log('Fetch failed; returning offline page:', error);
+            // If both cache and network fail, show a generic offline page
+            if (event.request.destination === 'document') {
+              return caches.match('/');
+            }
+          });
+      })
+  );
 });
 
 // Background sync for offline data
@@ -82,8 +98,8 @@ self.addEventListener('push', function(event) {
   const data = event.data.json();
   const options = {
     body: data.body || 'New survey data available',
-    icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%234361ee"/><text x="50" y="70" font-family="Arial" font-size="60" text-anchor="middle" fill="white">📊</text></svg>',
-    badge: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%234361ee"/><text x="50" y="70" font-family="Arial" font-size="60" text-anchor="middle" fill="white">📊</text></svg>',
+    icon: 'images/photo1.png',
+    badge: 'images/photo1.png',
     tag: 'survey-notification',
     renotify: true,
     actions: [
@@ -110,7 +126,7 @@ self.addEventListener('notificationclick', function(event) {
     event.waitUntil(
       clients.matchAll({type: 'window'}).then(windowClients => {
         for (let client of windowClients) {
-          if (client.url === '/' && 'focus' in client) {
+          if (client.url.includes('/') && 'focus' in client) {
             return client.focus();
           }
         }

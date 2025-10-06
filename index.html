@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="theme-color" content="#4361ee">
+    <meta name="theme-color" content="#eb8731">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="O-RANJ">
@@ -18,6 +18,59 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <!-- Authentication Modal -->
+    <div class="auth-modal" id="auth-modal">
+        <div class="auth-content">
+            <div class="auth-tabs">
+                <button class="auth-tab active" data-tab="login">Login</button>
+                <button class="auth-tab" data-tab="register">Register</button>
+            </div>
+            
+            <div class="auth-form active" id="login-form">
+                <h3>Welcome Back</h3>
+                <form id="loginForm">
+                    <div class="form-group">
+                        <label for="login-email">Email</label>
+                        <input type="email" id="login-email" name="email" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="login-password">Password</label>
+                        <input type="password" id="login-password" name="password" required>
+                    </div>
+                    <button type="submit" class="auth-btn">Login</button>
+                </form>
+            </div>
+            
+            <div class="auth-form" id="register-form">
+                <h3>Create Account</h3>
+                <form id="registerForm">
+                    <div class="form-group">
+                        <label for="register-name">Full Name</label>
+                        <input type="text" id="register-name" name="name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="register-email">Email</label>
+                        <input type="email" id="register-email" name="email" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="register-password">Password</label>
+                        <input type="password" id="register-password" name="password" required minlength="6">
+                    </div>
+                    <div class="form-group">
+                        <label for="register-team">Team Name</label>
+                        <input type="text" id="register-team" name="teamName" required>
+                    </div>
+                    <button type="submit" class="auth-btn">Create Account</button>
+                </form>
+            </div>
+            
+            <div class="auth-loading" id="auth-loading" style="display: none;">
+                <div class="loading-spinner"></div>
+                <p>Authenticating...</p>
+            </div>
+        </div>
+    </div>
+
     <!-- Offline Indicator -->
     <div class="offline-indicator" id="offline-indicator">
         ⚠️ You are currently offline
@@ -35,423 +88,526 @@
         <button id="cancel-install">Not Now</button>
     </div>
 
-    <div class="container">
-        <header>
-            <h1>Field Survey App</h1>
-            <p class="subtitle">Collect and analyze survey data offline in the field</p>
-        </header>
-        
-        <div class="app-nav">
-            <button class="nav-btn active" data-section="survey">Take Survey</button>
-            <button class="nav-btn" data-section="dashboard">View Results</button>
-            <button class="nav-btn" data-section="files">Data Files</button>
-        </div>
-        
-        <!-- Survey Section -->
-        <section class="app-section active" id="survey-section">
-            <div class="progress-container">
-                <div class="progress-bar" id="progress-bar"></div>
+    <!-- Main App (Hidden until authenticated) -->
+    <div class="app-container" id="app-container" style="display: none;">
+        <div class="container">
+            <header>
+                <div class="header-content">
+                    <h1>O-RANJ Field Survey</h1>
+                    <p class="subtitle">Collect and analyze survey data offline in the field</p>
+                    <div class="user-info">
+                        <span id="user-name">User</span>
+                        <button id="logout-btn" class="logout-btn">Logout</button>
+                    </div>
+                </div>
+            </header>
+            
+            <div class="app-nav">
+                <button class="nav-btn active" data-section="survey">Take Survey</button>
+                <button class="nav-btn" data-section="dashboard">View Results</button>
+                <button class="nav-btn" data-section="templates">Survey Templates</button>
+                <button class="nav-btn" data-section="files">Data Files</button>
             </div>
             
-            <div class="section-indicator" id="section-indicator">
-                <!-- Section dots will be added by JavaScript -->
-            </div>
-            
-            <!-- Section 1: Identifying the Biggest Problems -->
-            <section class="survey-section active" id="section-1">
-                <h2>Identifying the Biggest Problems</h2>
-                
-                <div class="question">
-                    <p class="question-text">What's the most annoying thing about being a student right now?</p>
-                    <textarea id="open-ended-problem" placeholder="Share your thoughts..."></textarea>
+            <!-- Survey Section -->
+            <section class="app-section active" id="survey-section">
+                <div class="template-selector" id="template-selector">
+                    <label for="survey-template">Select Survey Template:</label>
+                    <select id="survey-template" class="filter-select">
+                        <option value="">Loading templates...</option>
+                    </select>
                 </div>
                 
-                <div class="question">
-                    <p class="question-text">On a scale of 1-5, how big of a problem are these in your life?</p>
-                    <p class="subtitle">(Rate each category - we'll automatically identify the top 3)</p>
+                <div class="progress-container">
+                    <div class="progress-bar" id="progress-bar"></div>
+                </div>
+                
+                <div class="section-indicator" id="section-indicator">
+                    <div class="section-dot active" data-section="1"></div>
+                    <div class="section-dot" data-section="2"></div>
+                    <div class="section-dot" data-section="3"></div>
+                    <div class="section-dot" data-section="4"></div>
+                </div>
+                
+                <!-- Section 1: Identifying the Biggest Problems -->
+                <section class="survey-section active" id="section-1">
+                    <h2>Identifying the Biggest Problems</h2>
                     
-                    <div id="problem-ratings">
-                        <!-- Problem ratings will be generated by JavaScript -->
-                    </div>
-                </div>
-                
-                <div class="top-problems-display" id="top-problems-display" style="display: none;">
-                    <h4>📊 Top 3 Problems Identified:</h4>
-                    <div id="top-problems-list">
-                        <!-- Top problems will be displayed here automatically -->
-                    </div>
-                </div>
-                
-                <div class="btn-container">
-                    <button class="btn-prev" disabled>Previous</button>
-                    <button class="btn-next" id="next-1">Next</button>
-                </div>
-            </section>
-            
-            <!-- Section 2: Current Solutions & Gaps -->
-            <section class="survey-section" id="section-2">
-                <h2>Current Solutions & Gaps</h2>
-                
-                <div class="question">
-                    <p class="question-text">How do you currently try to solve <span id="top-problem-text">your top problem</span>?</p>
-                    <textarea id="current-solution" placeholder="Describe your current approach..."></textarea>
-                </div>
-                
-                <div class="question">
-                    <p class="question-text">How satisfied are you with your current solution?</p>
-                    <div class="rating-scale" id="satisfaction-rating">
-                        <div class="rating-option" data-value="1">1 (Very Dissatisfied)</div>
-                        <div class="rating-option" data-value="2">2</div>
-                        <div class="rating-option" data-value="3">3 (Neutral)</div>
-                        <div class="rating-option" data-value="4">4</div>
-                        <div class="rating-option" data-value="5">5 (Very Satisfied)</div>
-                    </div>
-                </div>
-                
-                <div class="question">
-                    <p class="question-text">What's the most frustrating thing about how you currently solve this?</p>
-                    <textarea id="frustration-details" placeholder="Describe the main frustrations..."></textarea>
-                </div>
-                
-                <div class="btn-container">
-                    <button class="btn-prev" id="prev-2">Previous</button>
-                    <button class="btn-next" id="next-2">Next</button>
-                </div>
-            </section>
-            
-            <!-- Section 3: Solution Co-creation -->
-            <section class="survey-section" id="section-3">
-                <h2>Solution Brainstorming</h2>
-                <p class="subtitle">Work together to create a custom solution</p>
-                
-                <div class="solution-brainstorming">
                     <div class="question">
-                        <p class="question-text">Based on the problems discussed, what solution can we create together?</p>
-                        <div class="brainstorming-area" id="solution-brainstorming-area" contenteditable="true">
-                            Start typing your solution ideas here...
+                        <p class="question-text">What's the most annoying thing about being a student right now?</p>
+                        <textarea id="open-ended-problem" placeholder="Share your thoughts..."></textarea>
+                    </div>
+                    
+                    <div class="question">
+                        <p class="question-text">On a scale of 1-5, how big of a problem are these in your life?</p>
+                        <p class="subtitle">(Rate each category - we'll automatically identify the top 3)</p>
+                        
+                        <div id="problem-ratings">
+                            <!-- Problem ratings will be generated by JavaScript -->
                         </div>
                     </div>
                     
+                    <div class="top-problems-display" id="top-problems-display" style="display: none;">
+                        <h4>📊 Top 3 Problems Identified:</h4>
+                        <div id="top-problems-list">
+                            <!-- Top problems will be displayed here automatically -->
+                        </div>
+                    </div>
+                    
+                    <div class="btn-container">
+                        <button class="btn-prev" disabled>Previous</button>
+                        <button class="btn-next" id="next-1">Next</button>
+                    </div>
+                </section>
+                
+                <!-- Section 2: Current Solutions & Gaps -->
+                <section class="survey-section" id="section-2">
+                    <h2>Current Solutions & Gaps</h2>
+                    
                     <div class="question">
-                        <p class="question-text">Key features of our solution:</p>
-                        <textarea id="solution-features" placeholder="List the main features..."></textarea>
+                        <p class="question-text">How do you currently try to solve <span id="top-problem-text">your top problem</span>?</p>
+                        <textarea id="current-solution" placeholder="Describe your current approach..."></textarea>
                     </div>
                     
                     <div class="question">
-                        <p class="question-text">How likely would you be to use this solution?</p>
-                        <div class="rating-scale" id="likelihood-rating">
-                            <div class="rating-option" data-value="1">1 (Very Unlikely)</div>
+                        <p class="question-text">How satisfied are you with your current solution?</p>
+                        <div class="rating-scale" id="satisfaction-rating">
+                            <div class="rating-option" data-value="1">1 (Very Dissatisfied)</div>
                             <div class="rating-option" data-value="2">2</div>
                             <div class="rating-option" data-value="3">3 (Neutral)</div>
                             <div class="rating-option" data-value="4">4</div>
-                            <div class="rating-option" data-value="5">5 (Very Likely)</div>
+                            <div class="rating-option" data-value="5">5 (Very Satisfied)</div>
                         </div>
                     </div>
                     
                     <div class="question">
-                        <p class="question-text">How much would you be willing to pay for it (per week)?</p>
-                        <input type="text" id="custom-pricing" placeholder="e.g., R50 per week" style="width: 100%; padding: 15px; border: 1px solid #ddd; border-radius: 5px;">
+                        <p class="question-text">What's the most frustrating thing about how you currently solve this?</p>
+                        <textarea id="frustration-details" placeholder="Describe the main frustrations..."></textarea>
                     </div>
-                </div>
-                
-                <div class="btn-container">
-                    <button class="btn-prev" id="prev-3">Previous</button>
-                    <button class="btn-next" id="next-3">Next</button>
-                </div>
-            </section>
-            
-            <!-- Section 4: Wrap-Up -->
-            <section class="survey-section" id="section-4">
-                <h2>Wrap-Up</h2>
-                
-                <div class="question">
-                    <p class="question-text">If student life was a video game, what boss battle are you stuck on right now?</p>
-                    <textarea id="boss-battle" placeholder="Be creative!"></textarea>
-                </div>
-                
-                <div class="question">
-                    <p class="question-text">Want to be one of the first to try out solutions we're building?</p>
-                    <div class="options-list">
-                        <div class="option-item" data-value="yes">Yes, I'm interested!</div>
-                        <div class="option-item" data-value="no">No, thanks</div>
-                    </div>
-                </div>
-                
-                <div class="question" id="contact-info" style="display: none;">
-                    <p class="question-text">Great! How can we contact you?</p>
-                    <input type="email" id="email" placeholder="Email address" style="margin-bottom: 10px;">
-                    <input type="tel" id="phone" placeholder="Phone number (optional)">
-                </div>
-
-                <div class="file-storage-info">
-                    <strong>📁 Data Storage:</strong> All responses are saved locally on this device and can be exported for analysis.
-                </div>
-                
-                <div class="btn-container">
-                    <button class="btn-prev" id="prev-4">Previous</button>
-                    <button class="btn-submit" id="submit">Submit Survey</button>
-                </div>
-            </section>
-            
-            <!-- Thank You Message -->
-            <div class="thank-you" id="thank-you">
-                <h2>Thank You!</h2>
-                <p>Your responses have been recorded. We appreciate your time and insights!</p>
-                <button class="nav-btn" id="view-results" style="margin-top: 20px;">View Results</button>
-            </div>
-        </section>
-        
-        <!-- Dashboard Section -->
-        <section class="app-section" id="dashboard-section">
-            <div class="dashboard-controls">
-                <div class="filter-group">
-                    <select class="filter-select" id="time-filter">
-                        <option value="all">All Time</option>
-                        <option value="week">Last Week</option>
-                        <option value="month">Last Month</option>
-                        <option value="quarter">Last Quarter</option>
-                    </select>
                     
-                    <select class="filter-select" id="problem-filter">
-                        <option value="all">All Problems</option>
-                        <option value="food">Food/Nutrition</option>
-                        <option value="money">Money/Expenses</option>
-                        <option value="transport">Transport</option>
-                        <option value="academics">Academics</option>
-                        <option value="mental-health">Mental Health</option>
-                    </select>
-                </div>
+                    <div class="btn-container">
+                        <button class="btn-prev" id="prev-2">Previous</button>
+                        <button class="btn-next" id="next-2">Next</button>
+                    </div>
+                </section>
                 
-                <button class="export-btn" id="export-data">
-                    <span>Export Data</span>
-                </button>
-            </div>
-            
-            <div class="stats-overview">
-                <div class="stat-card">
-                    <div class="stat-value" id="total-responses">0</div>
-                    <div class="stat-label">Total Responses</div>
-                </div>
-                
-                <div class="stat-card">
-                    <div class="stat-value" id="completion-rate">0%</div>
-                    <div class="stat-label">Completion Rate</div>
-                </div>
-                
-                <div class="stat-card">
-                    <div class="stat-value" id="avg-problem-severity">0.0</div>
-                    <div class="stat-label">Avg Problem Severity</div>
-                </div>
-                
-                <div class="stat-card">
-                    <div class="stat-value" id="top-problem">-</div>
-                    <div class="stat-label">Top Problem Area</div>
-                </div>
-                
-                <div class="stat-card">
-                    <div class="stat-value" id="solution-interest">0%</div>
-                    <div class="stat-label">Solution Interest</div>
-                </div>
-            </div>
-            
-            <div class="tab-container">
-                <div class="tabs">
-                    <div class="tab active" data-tab="overview">Overview</div>
-                    <div class="tab" data-tab="problems">Problem Analysis</div>
-                    <div class="tab" data-tab="solutions">Solution Analysis</div>
-                </div>
-                
-                <!-- Overview Tab -->
-                <div class="tab-content active" id="overview-tab">
-                    <div class="charts-grid">
-                        <div class="chart-container">
-                            <div class="chart-header">
-                                <div class="chart-title">Problem Distribution</div>
-                            </div>
-                            <div class="chart-wrapper">
-                                <canvas id="problem-distribution-chart"></canvas>
+                <!-- Section 3: Solution Co-creation -->
+                <section class="survey-section" id="section-3">
+                    <h2>Solution Brainstorming</h2>
+                    <p class="subtitle">Work together to create a custom solution</p>
+                    
+                    <div class="solution-brainstorming">
+                        <div class="question">
+                            <p class="question-text">Based on the problems discussed, what solution can we create together?</p>
+                            <div class="brainstorming-area" id="solution-brainstorming-area" contenteditable="true">
+                                Start typing your solution ideas here...
                             </div>
                         </div>
                         
-                        <div class="chart-container">
-                            <div class="chart-header">
-                                <div class="chart-title">Top Problem Areas</div>
-                            </div>
-                            <div class="chart-wrapper">
-                                <canvas id="top-problems-chart"></canvas>
+                        <div class="question">
+                            <p class="question-text">Key features of our solution:</p>
+                            <textarea id="solution-features" placeholder="List the main features..."></textarea>
+                        </div>
+                        
+                        <div class="question">
+                            <p class="question-text">How likely would you be to use this solution?</p>
+                            <div class="rating-scale" id="likelihood-rating">
+                                <div class="rating-option" data-value="1">1 (Very Unlikely)</div>
+                                <div class="rating-option" data-value="2">2</div>
+                                <div class="rating-option" data-value="3">3 (Neutral)</div>
+                                <div class="rating-option" data-value="4">4</div>
+                                <div class="rating-option" data-value="5">5 (Very Likely)</div>
                             </div>
                         </div>
                         
-                        <div class="chart-container">
-                            <div class="chart-header">
-                                <div class="chart-title">Problem Severity by Category</div>
-                            </div>
-                            <div class="chart-wrapper">
-                                <canvas id="severity-by-category-chart"></canvas>
-                            </div>
-                        </div>
-                        
-                        <div class="chart-container">
-                            <div class="chart-header">
-                                <div class="chart-title">Preferred Solutions</div>
-                            </div>
-                            <div class="chart-wrapper">
-                                <canvas id="preferred-solutions-chart"></canvas>
-                            </div>
+                        <div class="question">
+                            <p class="question-text">How much would you be willing to pay for it (per week)?</p>
+                            <input type="text" id="custom-pricing" placeholder="e.g., R50 per week">
                         </div>
                     </div>
                     
-                    <div class="insights-panel">
-                        <h3>Key Insights</h3>
-                        <div class="insight-item">
-                            <div class="insight-title">
-                                <span>📊</span>
-                                <span>Most Pressing Issue</span>
-                            </div>
-                            <div class="insight-content" id="most-pressing-insight">
-                                No data yet. Collect some survey responses to see insights.
-                            </div>
-                        </div>
-                        
-                        <div class="insight-item">
-                            <div class="insight-title">
-                                <span>💰</span>
-                                <span>Willingness to Pay</span>
-                            </div>
-                            <div class="insight-content" id="willingness-pay-insight">
-                                No data yet. Collect some survey responses to see insights.
-                            </div>
-                        </div>
-                        
-                        <div class="insight-item">
-                            <div class="insight-title">
-                                <span>🚀</span>
-                                <span>Early Adopter Potential</span>
-                            </div>
-                            <div class="insight-content" id="early-adopter-insight">
-                                No data yet. Collect some survey responses to see insights.
-                            </div>
-                        </div>
+                    <div class="btn-container">
+                        <button class="btn-prev" id="prev-3">Previous</button>
+                        <button class="btn-next" id="next-3">Next</button>
                     </div>
-                </div>
+                </section>
                 
-                <!-- Problem Analysis Tab -->
-                <div class="tab-content" id="problems-tab">
-                    <div class="charts-grid">
-                        <div class="chart-container">
-                            <div class="chart-header">
-                                <div class="chart-title">Current Solution Satisfaction</div>
-                            </div>
-                            <div class="chart-wrapper">
-                                <canvas id="satisfaction-chart"></canvas>
-                            </div>
-                        </div>
-                        
-                        <div class="chart-container">
-                            <div class="chart-header">
-                                <div class="chart-title">Frustration Factors</div>
-                            </div>
-                            <div class="chart-wrapper">
-                                <canvas id="frustration-chart"></canvas>
-                            </div>
+                <!-- Section 4: Wrap-Up -->
+                <section class="survey-section" id="section-4">
+                    <h2>Wrap-Up</h2>
+                    
+                    <div class="question">
+                        <p class="question-text">If student life was a video game, what boss battle are you stuck on right now?</p>
+                        <textarea id="boss-battle" placeholder="Be creative!"></textarea>
+                    </div>
+                    
+                    <div class="question">
+                        <p class="question-text">Want to be one of the first to try out solutions we're building?</p>
+                        <div class="options-list">
+                            <div class="option-item" data-value="yes">Yes, I'm interested!</div>
+                            <div class="option-item" data-value="no">No, thanks</div>
                         </div>
                     </div>
-                </div>
-                
-                <!-- Solution Analysis Tab -->
-                <div class="tab-content" id="solutions-tab">
-                    <div class="charts-grid">
-                        <div class="chart-container">
-                            <div class="chart-header">
-                                <div class="chart-title">Solution Adoption Likelihood</div>
-                            </div>
-                            <div class="chart-wrapper">
-                                <canvas id="adoption-likelihood-chart"></canvas>
-                            </div>
-                        </div>
-                        
-                        <div class="chart-container">
-                            <div class="chart-header">
-                                <div class="chart-title">Willingness to Pay</div>
-                            </div>
-                            <div class="chart-wrapper">
-                                <canvas id="willingness-pay-chart"></canvas>
-                            </div>
-                        </div>
-                        
-                        <div class="chart-container">
-                            <div class="chart-header">
-                                <div class="chart-title">Early Adopter Analysis</div>
-                            </div>
-                            <div class="chart-wrapper">
-                                <canvas id="early-adopter-chart"></canvas>
-                            </div>
-                        </div>
+                    
+                    <div class="question" id="contact-info" style="display: none;">
+                        <p class="question-text">Great! How can we contact you?</p>
+                        <input type="email" id="email" placeholder="Email address">
+                        <input type="tel" id="phone" placeholder="Phone number (optional)" style="margin-top: 10px;">
                     </div>
-                </div>
-            </div>
-            
-            <div class="data-table">
-                <h3>Response Data</h3>
-                <table id="response-table">
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Date</th>
-                            <th>Top Problem</th>
-                            <th>Severity</th>
-                            <th>Preferred Solution</th>
-                            <th>Willingness to Pay</th>
-                            <th>Early Adopter</th>
-                        </tr>
-                    </thead>
-                    <tbody id="response-table-body">
-                        <!-- Table rows will be populated by JavaScript -->
-                    </tbody>
-                </table>
-            </div>
-        </section>
 
-        <!-- File Management Section -->
-        <section class="app-section" id="files-section">
-            <div class="survey-section">
-                <h2>Data Files & Export</h2>
-                
-                <div class="question">
-                    <p class="question-text">Survey Data Management</p>
                     <div class="file-storage-info">
-                        <p><strong>Location:</strong> Data is stored in your browser's local storage</p>
-                        <p><strong>Total Surveys:</strong> <span id="total-surveys-count">0</span> completed surveys</p>
-                        <p><strong>Storage Used:</strong> <span id="storage-used">Calculating...</span></p>
+                        <strong>📁 Data Storage:</strong> All responses are saved locally on this device and can be exported for analysis.
+                    </div>
+                    
+                    <div class="btn-container">
+                        <button class="btn-prev" id="prev-4">Previous</button>
+                        <button class="btn-submit" id="submit">Submit Survey</button>
+                    </div>
+                </section>
+                
+                <!-- Thank You Message -->
+                <div class="thank-you" id="thank-you">
+                    <h2>Thank You!</h2>
+                    <p>Your responses have been recorded. We appreciate your time and insights!</p>
+                    <button class="nav-btn" id="view-results" style="margin-top: 20px;">View Results</button>
+                </div>
+            </section>
+            
+            <!-- Dashboard Section -->
+            <section class="app-section" id="dashboard-section">
+                <div class="dashboard-controls">
+                    <div class="filter-group">
+                        <select class="filter-select" id="time-filter">
+                            <option value="all">All Time</option>
+                            <option value="week">Last Week</option>
+                            <option value="month">Last Month</option>
+                            <option value="quarter">Last Quarter</option>
+                        </select>
+                        
+                        <select class="filter-select" id="template-filter">
+                            <option value="all">All Templates</option>
+                        </select>
+                    </div>
+                    
+                    <button class="export-btn" id="export-data">
+                        <span>Export Data</span>
+                    </button>
+                </div>
+                
+                <div class="stats-overview">
+                    <div class="stat-card">
+                        <div class="stat-value" id="total-responses">0</div>
+                        <div class="stat-label">Total Responses</div>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-value" id="completion-rate">0%</div>
+                        <div class="stat-label">Completion Rate</div>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-value" id="avg-problem-severity">0.0</div>
+                        <div class="stat-label">Avg Problem Severity</div>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-value" id="top-problem">-</div>
+                        <div class="stat-label">Top Problem Area</div>
+                    </div>
+                    
+                    <div class="stat-card">
+                        <div class="stat-value" id="solution-interest">0%</div>
+                        <div class="stat-label">Solution Interest</div>
                     </div>
                 </div>
+                
+                <div class="tab-container">
+                    <div class="tabs">
+                        <div class="tab active" data-tab="overview">Overview</div>
+                        <div class="tab" data-tab="problems">Problem Analysis</div>
+                        <div class="tab" data-tab="solutions">Solution Analysis</div>
+                    </div>
+                    
+                    <!-- Overview Tab -->
+                    <div class="tab-content active" id="overview-tab">
+                        <div class="charts-grid">
+                            <div class="chart-container">
+                                <div class="chart-header">
+                                    <div class="chart-title">Problem Distribution</div>
+                                </div>
+                                <div class="chart-wrapper">
+                                    <canvas id="problem-distribution-chart"></canvas>
+                                </div>
+                            </div>
+                            
+                            <div class="chart-container">
+                                <div class="chart-header">
+                                    <div class="chart-title">Top Problem Areas</div>
+                                </div>
+                                <div class="chart-wrapper">
+                                    <canvas id="top-problems-chart"></canvas>
+                                </div>
+                            </div>
+                            
+                            <div class="chart-container">
+                                <div class="chart-header">
+                                    <div class="chart-title">Problem Severity by Category</div>
+                                </div>
+                                <div class="chart-wrapper">
+                                    <canvas id="severity-by-category-chart"></canvas>
+                                </div>
+                            </div>
+                            
+                            <div class="chart-container">
+                                <div class="chart-header">
+                                    <div class="chart-title">Current Solution Satisfaction</div>
+                                </div>
+                                <div class="chart-wrapper">
+                                    <canvas id="satisfaction-chart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="insights-panel">
+                            <h3>Key Insights</h3>
+                            <div class="insight-item">
+                                <div class="insight-title">
+                                    <span>📊</span>
+                                    <span>Most Pressing Issue</span>
+                                </div>
+                                <div class="insight-content" id="most-pressing-insight">
+                                    No data yet. Collect some survey responses to see insights.
+                                </div>
+                            </div>
+                            
+                            <div class="insight-item">
+                                <div class="insight-title">
+                                    <span>💰</span>
+                                    <span>Willingness to Pay</span>
+                                </div>
+                                <div class="insight-content" id="willingness-pay-insight">
+                                    No data yet. Collect some survey responses to see insights.
+                                </div>
+                            </div>
+                            
+                            <div class="insight-item">
+                                <div class="insight-title">
+                                    <span>🚀</span>
+                                    <span>Early Adopter Potential</span>
+                                </div>
+                                <div class="insight-content" id="early-adopter-insight">
+                                    No data yet. Collect some survey responses to see insights.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Problem Analysis Tab -->
+                    <div class="tab-content" id="problems-tab">
+                        <div class="charts-grid">
+                            <div class="chart-container">
+                                <div class="chart-header">
+                                    <div class="chart-title">Problem Severity by Category</div>
+                                </div>
+                                <div class="chart-wrapper">
+                                    <canvas id="severity-chart"></canvas>
+                                </div>
+                            </div>
+                            
+                            <div class="chart-container">
+                                <div class="chart-header">
+                                    <div class="chart-title">Top Problem Areas</div>
+                                </div>
+                                <div class="chart-wrapper">
+                                    <canvas id="top-problems-chart-2"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Solution Analysis Tab -->
+                    <div class="tab-content" id="solutions-tab">
+                        <div class="charts-grid">
+                            <div class="chart-container">
+                                <div class="chart-header">
+                                    <div class="chart-title">Solution Adoption Likelihood</div>
+                                </div>
+                                <div class="chart-wrapper">
+                                    <canvas id="adoption-likelihood-chart"></canvas>
+                                </div>
+                            </div>
+                            
+                            <div class="chart-container">
+                                <div class="chart-header">
+                                    <div class="chart-title">Willingness to Pay</div>
+                                </div>
+                                <div class="chart-wrapper">
+                                    <canvas id="willingness-pay-chart"></canvas>
+                                </div>
+                            </div>
+                            
+                            <div class="chart-container">
+                                <div class="chart-header">
+                                    <div class="chart-title">Early Adopter Analysis</div>
+                                </div>
+                                <div class="chart-wrapper">
+                                    <canvas id="early-adopter-chart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="data-table">
+                    <h3>Response Data</h3>
+                    <table id="response-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Date</th>
+                                <th>Template</th>
+                                <th>Top Problem</th>
+                                <th>Severity</th>
+                                <th>Preferred Solution</th>
+                                <th>Willingness to Pay</th>
+                                <th>Early Adopter</th>
+                            </tr>
+                        </thead>
+                        <tbody id="response-table-body">
+                            <!-- Table rows will be populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
 
-                <div class="question">
-                    <p class="question-text">Export Options</p>
-                    <div class="btn-container" style="flex-direction: column;">
-                        <button class="export-btn" id="export-json" style="margin-bottom: 10px;">
-                            📊 Export as JSON
+            <!-- Survey Templates Section -->
+            <section class="app-section" id="templates-section">
+                <div class="survey-section">
+                    <h2>Survey Templates</h2>
+                    
+                    <div class="template-controls">
+                        <button class="export-btn" id="create-template-btn">
+                            ➕ Create New Template
                         </button>
-                        <button class="export-btn" id="export-csv" style="margin-bottom: 10px;">
-                            📋 Export as CSV
-                        </button>
-                        <button class="export-btn" id="export-backup" style="margin-bottom: 10px;">
-                            💾 Create Full Backup
-                        </button>
-                        <button class="btn-prev" id="clear-data" style="background-color: var(--danger); color: white;">
-                            🗑️ Clear All Data
-                        </button>
+                        <div class="filter-group">
+                            <select class="filter-select" id="template-status-filter">
+                                <option value="all">All Status</option>
+                                <option value="draft">Draft</option>
+                                <option value="active">Active</option>
+                                <option value="archived">Archived</option>
+                            </select>
+                            <select class="filter-select" id="template-category-filter">
+                                <option value="all">All Categories</option>
+                                <option value="student">Student</option>
+                                <option value="customer">Customer</option>
+                                <option value="employee">Employee</option>
+                                <option value="market">Market</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
                     </div>
-                </div>
 
-                <div class="question">
-                    <p class="question-text">Recent Surveys</p>
-                    <div id="recent-surveys-list" style="max-height: 300px; overflow-y: auto;">
-                        <!-- Recent surveys will be listed here -->
+                    <div class="templates-grid" id="templates-grid">
+                        <!-- Templates will be loaded here -->
+                    </div>
+
+                    <!-- Template Creation/Edit Modal -->
+                    <div class="modal" id="template-modal" style="display: none;">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h3 id="template-modal-title">Create New Template</h3>
+                                <button class="close-modal" id="close-template-modal">&times;</button>
+                            </div>
+                            <div class="modal-body">
+                                <form id="template-form">
+                                    <div class="form-group">
+                                        <label for="template-name">Template Name</label>
+                                        <input type="text" id="template-name" name="name" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="template-description">Description</label>
+                                        <textarea id="template-description" name="description"></textarea>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="template-category">Category</label>
+                                        <select id="template-category" name="category" required>
+                                            <option value="student">Student</option>
+                                            <option value="customer">Customer</option>
+                                            <option value="employee">Employee</option>
+                                            <option value="market">Market</option>
+                                            <option value="other">Other</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="template-status">Status</label>
+                                        <select id="template-status" name="status" required>
+                                            <option value="draft">Draft</option>
+                                            <option value="active">Active</option>
+                                            <option value="archived">Archived</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Questions</label>
+                                        <div id="template-questions">
+                                            <!-- Questions will be added here -->
+                                        </div>
+                                        <button type="button" class="add-question-btn" id="add-question-btn">
+                                            ➕ Add Question
+                                        </button>
+                                    </div>
+                                    <div class="form-actions">
+                                        <button type="submit" class="btn-submit">Save Template</button>
+                                        <button type="button" class="btn-prev" id="cancel-template">Cancel</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            </div>
-        </section>
+            </section>
+
+            <!-- File Management Section -->
+            <section class="app-section" id="files-section">
+                <div class="survey-section">
+                    <h2>Data Files & Export</h2>
+                    
+                    <div class="question">
+                        <p class="question-text">Survey Data Management</p>
+                        <div class="file-storage-info">
+                            <p><strong>Location:</strong> Data is stored in your browser's local storage and synchronized with the server</p>
+                            <p><strong>Total Surveys:</strong> <span id="total-surveys-count">0</span> completed surveys</p>
+                            <p><strong>Storage Used:</strong> <span id="storage-used">Calculating...</span></p>
+                            <p><strong>Sync Status:</strong> <span id="sync-status-text">Checking...</span></p>
+                        </div>
+                    </div>
+
+                    <div class="question">
+                        <p class="question-text">Export Options</p>
+                        <div class="btn-container" style="flex-direction: column;">
+                            <button class="export-btn" id="export-json" style="margin-bottom: 10px;">
+                                📊 Export as JSON
+                            </button>
+                            <button class="export-btn" id="export-csv" style="margin-bottom: 10px;">
+                                📋 Export as CSV
+                            </button>
+                            <button class="btn-prev" id="sync-now-btn" style="background-color: #4361ee; color: white; margin-bottom: 10px;">
+                                🔄 Sync Now
+                            </button>
+                            <button class="btn-prev" id="clear-data" style="background-color: var(--danger); color: white;">
+                                🗑️ Clear All Data
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="question">
+                        <p class="question-text">Recent Surveys</p>
+                        <div id="recent-surveys-list" style="max-height: 300px; overflow-y: auto;">
+                            <!-- Recent surveys will be listed here -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
     </div>
 
     <script src="script.js"></script>
