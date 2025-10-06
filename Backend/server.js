@@ -5,7 +5,7 @@ const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
-const connectDB = require('./config/database');
+const { connectDB, checkDBHealth, getDBStats } = require('./config/database');
 const errorHandler = require('./middleware/errorHandler');
 
 // Route imports
@@ -51,14 +51,52 @@ app.use((req, res, next) => {
   next();
 });
 
-// Health check route
-app.get('/api/health', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Server is running',
-    timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV
-  });
+// Enhanced health check route with database status
+app.get('/api/health', async (req, res) => {
+  try {
+    const dbHealth = await checkDBHealth();
+    
+    res.json({
+      success: true,
+      message: 'Server is running',
+      timestamp: new Date().toISOString(),
+      environment: process.env.NODE_ENV,
+      database: {
+        status: dbHealth ? 'connected' : 'disconnected',
+        host: process.env.MONGODB_URI ? process.env.MONGODB_URI.split('@')[1]?.split('/')[0] : 'unknown'
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Health check failed',
+      error: error.message
+    });
+  }
+});
+
+// Database statistics route (protected in production)
+app.get('/api/admin/db-stats', async (req, res) => {
+  try {
+    if (process.env.NODE_ENV === 'production' && !req.headers['admin-key']) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied'
+      });
+    }
+
+    const stats = await getDBStats();
+    res.json({
+      success: true,
+      data: stats
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get database statistics',
+      error: error.message
+    });
+  }
 });
 
 // API routes
@@ -80,14 +118,26 @@ app.use(errorHandler);
 const PORT = process.env.PORT || 5000;
 
 const server = app.listen(PORT, () => {
-  console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+  console.log(`🚀 Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
 });
 
-// Handle unhandled promise rejections
+// Enhanced unhandled rejection handler
 process.on('unhandledRejection', (err, promise) => {
-  console.log('Unhandled Rejection at:', promise, 'reason:', err);
+  console.log('🔴 Unhandled Rejection at:', promise, 'reason:', err);
+  console.log('💡 Closing server gracefully...');
+  
   server.close(() => {
+    console.log('🟡 HTTP server closed');
     process.exit(1);
+  });
+});
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  console.log('🟡 SIGTERM received, shutting down gracefully');
+  server.close(() => {
+    console.log('🟡 HTTP server closed');
+    process.exit(0);
   });
 });
 
